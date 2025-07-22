@@ -1,0 +1,183 @@
+-----------------------------------------------------------------------Spring Security------------------------------------------------------------------------------------------------------
+JWT-Json web token
+It consist 3 Parts
+1. header (types algorithm, types of token like JWT etc)
+2. payload (issuer name, expiry time etc)
+3. Signature(unique key/algorithm key)
+
+How to store encrypted password in DB?
+
+step1: add oAuth dependencies
+
+		<dependency>
+			<groupId>org.springframework.security.oauth</groupId>
+			<artifactId>spring-security-oauth2</artifactId>
+			<version>2.5.1.RELEASE</version>
+		</dependency>
+
+step2:encrypt the password:
+
+String enCryptedPassword=  BCrypt.hashpw(registartion.getPassword(),BCrypt.gensalt(5));
+
+step3:decrypt the password:
+
+boolean isPasswordMatch = BCrypt.checkpw(registrationDto.getPassword(), registartion.getPassword());
+
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Spring security with JWT
+
+overview:-> -create configure package and class name SecurityFilterChain inside class add URL
+            -add application.properties
+            -create JWTService--->CCIES and RIBVS
+            -create JWTFilter
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+step1: add spring security dependencies and JWT depenencies , now by default all endpoints are secure
+
+		<dependency>         
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security</artifactId>
+		</dependency>
+
+                <dependency>
+			<groupId>com.auth0</groupId>
+			<artifactId>java-jwt</artifactId>
+			<version>4.4.0</version>
+		</dependency>
+
+note: make sure your spring boot is 3.0.0 because sometime spring security not work higher version
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+step2: create @Configuration class to add SecurityConfig now your url are not secure
+
+@Configuration
+public class SecurityConfig {
+
+
+   
+    private final JwtFilter jwtFilter;
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http.csrf().disable().cors().disable();
+//        http.authorizeHttpRequests().anyRequest().permitAll();
+        http.addFilterBefore(jwtFilter, AuthorizationFilter.class);
+        http.authorizeHttpRequests()
+                .requestMatchers("/app/v1/save").permitAll()
+                .requestMatchers("/app/jwt/transaction").hasRole("OWNER")
+                .requestMatchers("/app/jwt/login").permitAll()
+                .anyRequest().authenticated();
+
+        return http.build();
+
+    
+    }
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+step3: add properties in application.properties
+
+jwt.issuer=com.rahul
+jwt.expiry-time=86400000
+jwt.key=sbuwbuwbubBuVVvuVU789HBKNknKNnKNYEHH9uw9uwsnsnsknsknsksnksnsksnksnsk
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+step4: ///////////////////create JWTService ////////////////////////////////////
+
+
+@Service
+public class JWTService {
+
+    @Value("${jwt.key}")
+    private String algorithmKey;
+
+    @Value("${jwt.expiry-time}")
+    private long expiry;
+
+    @Value("${jwt.issuer}")
+    private String issuer;
+
+    private Algorithm algorithm;
+
+    @PostConstruct
+    public  void postConstruct(){
+        algorithm=Algorithm.HMAC256(algorithmKey);
+    }
+
+    public String generateToken(String username){
+        //CCIES
+        return JWT.create()
+                .withClaim("username",username)
+                .withIssuer(issuer)
+                .withExpiresAt(new java.util.Date(System.currentTimeMillis()+expiry))
+                .sign(algorithm);
+    }
+
+    public String verifyToken(String token){
+        //RIBVS
+        DecodedJWT decodedJWT= JWT.require(algorithm).withIssuer(issuer).build().verify(token);
+        return decodedJWT.getClaim("username").asString();
+    }
+}
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+step6: ///////////////////create JWTFilter  ////////////////////////////////////
+  
+
+ @Configuration
+public class JwtFilter extends OncePerRequestFilter {
+
+    @Autowired
+    JWTService jwtService;
+
+    @Autowired
+    UserRepository userRepository;
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
+       String token= request.getHeader("Authorization");
+        System.out.println(token);
+        if(token!=null && token.startsWith("Bearer ")){
+          String jwtToken= token.substring(7,token.length());
+          String name=jwtService.verifyToken(jwtToken);
+          Optional<User>op=userRepository.findByName(name);
+          if(op.isPresent()){
+              User user = op.get();
+              // Add "ROLE_" prefix to the role as expected by Spring Security
+              String role = user.getRole();
+              SimpleGrantedAuthority authority = new SimpleGrantedAuthority("ROLE_" + role);
+              UsernamePasswordAuthenticationToken authenticationToken=
+                      new UsernamePasswordAuthenticationToken(user,null, Collections.singleton(authority));
+                authenticationToken.setDetails(new WebAuthenticationDetails(request));
+              SecurityContextHolder.getContext().setAuthentication(authenticationToken);
+          }
+        }
+filterChain.doFilter(request,response);
+    }
+}
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+//generate token 
+http://localhost:8080/app/jwt/login
+
+{
+    "name":"Abhira",
+    "password":"testing",
+    "role":"ADMIN"
+}
+
+//transaction(role based)+JWTToken
+http://localhost:8080/app/jwt/transaction
+
+{
+    "name": "Vidya",
+    "password": "12345678",
+    "role": "ADMIN"
+}
+
+--------------------------------------------------------------spring security end----------------------------------------------------------------------------------------------------------
+Api endpoints : https://documenter.getpostman.com/view/30113311/2sB2ca7zmV
